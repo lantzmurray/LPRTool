@@ -1,0 +1,172 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import csv
+import os
+import zipfile
+import re
+
+
+def detect_file_type(file_path):
+    filename = os.path.basename(file_path).lower()
+    try:
+        if file_path.endswith(".weblet"):
+            return "Xerox Weblet"
+        elif file_path.endswith(".dlm"):
+            size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            if size_mb > 50:
+                return "Xerox Firmware"
+            elif re.search(r"v[12]\.dlm$", filename):
+                return "Xerox Patch"
+            else:
+                return "Xerox Clone"
+        elif file_path.endswith(".rfu") or file_path.endswith(".pkg"):
+            return "Ricoh Firmware"
+        elif file_path.endswith(".hex") or file_path.endswith(".vme"):
+            return "HP Firmware"
+        else:
+            return "Unknown"
+    except:
+        return "Unknown"
+
+
+def suggest_fix(error_text):
+    suggestions = []
+    if "not recognized" in error_text:
+        suggestions.append("LPR might not be installed. Verify LPR is enabled via Windows Features.")
+    if "Access is denied" in error_text:
+        suggestions.append("Try running the batch file as administrator.")
+    if "cannot find the file" in error_text:
+        suggestions.append("Ensure the path to the firmware file is correct.")
+    return suggestions
+
+
+def generate_batch(ip_list, file_path, output_path, bat_filename):
+    # Ensure .bat extension is present
+    if not bat_filename.lower().endswith(".bat"):
+        bat_filename += ".bat"
+
+    bat_file = os.path.join(output_path, bat_filename)
+    error_file = os.path.splitext(bat_file)[0] + "_Errors.txt"
+    zip_file = os.path.splitext(bat_file)[0] + "_package.zip"
+    try:
+        with open(bat_file, "w") as f:
+            for ip in ip_list:
+                
+                if re.match(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$", ip):
+    
+                    line = f"LPR -S {ip} -P lp \"{file_path}\"\n"
+                    f.write(line)
+
+        # Create ZIP
+        with zipfile.ZipFile(zip_file, 'w') as zipf:
+            zipf.write(bat_file, os.path.basename(bat_file))
+            open(error_file, 'a').close()  # Create empty error log if not run yet
+            zipf.write(error_file, os.path.basename(error_file))
+
+        # Command string to run with error capture
+        run_cmd = f"{bat_filename} >> {os.path.basename(error_file)} 2>&1"
+        return bat_file, run_cmd, zip_file
+    except Exception as e:
+        return None, str(e), None
+
+
+def browse_csv():
+    file = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
+    csv_entry.delete(0, tk.END)
+    csv_entry.insert(0, file)
+
+
+def browse_dlm():
+    file = filedialog.askopenfilename(filetypes=[("Firmware Files", "*.dlm *.weblet *.rfu *.pkg *.hex *.vme")])
+    dlm_entry.delete(0, tk.END)
+    dlm_entry.insert(0, file)
+    file_type.set(detect_file_type(file))
+
+
+def choose_output_folder():
+    folder = filedialog.askdirectory()
+    output_entry.delete(0, tk.END)
+    output_entry.insert(0, folder)
+
+
+def build_script():
+    csv_path = csv_entry.get()
+    file_path = dlm_entry.get()
+    output_path = output_entry.get()
+    bat_filename = filename_entry.get()
+
+    if not all([csv_path, file_path, output_path, bat_filename]):
+        messagebox.showerror("Missing Information", "Please fill out all fields.")
+        return
+
+    try:
+        with open(csv_path, "r") as f:
+            reader = csv.reader(f)
+            ip_list = [row[0].strip() for row in reader if row and row[0].strip()]
+
+        bat_file, cmd, zip_file = generate_batch(ip_list, file_path, output_path, bat_filename)
+        if bat_file:
+            msg = f"Batch file created at:\n{bat_file}\n\nTo run with error logging:\n{cmd}\n\nZIP package created at:\n{zip_file}"
+
+            # Try to read error log and suggest fixes
+            error_file = os.path.splitext(bat_file)[0] + "_Errors.txt"
+            if os.path.exists(error_file):
+                with open(error_file, 'r') as ef:
+                    error_content = ef.read()
+                    fixes = suggest_fix(error_content)
+                    if fixes:
+                        msg += "\n\nSuggestions based on previous error logs:\n" + "\n".join(fixes)
+
+            output_msg.set(msg)
+            messagebox.showinfo("Success", msg)
+        else:
+            messagebox.showerror("Error", f"Failed to create batch file:\n{cmd}")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+
+# GUI Setup
+root = tk.Tk()
+root.title("Printer Firmware Batch Builder Tool")
+root.geometry("480x600")
+
+file_type = tk.StringVar(value="Unknown")
+
+# CSV File
+tk.Label(root, text="CSV of Printer IPs (1st column only will be used.Just IPs. No Headers):").pack()
+csv_entry = tk.Entry(root, width=70)
+csv_entry.pack()
+tk.Button(root, text="Browse", command=browse_csv).pack()
+
+# Firmware File
+tk.Label(root, text="Firmware File (Xerox, Ricoh, HP):").pack()
+dlm_entry = tk.Entry(root, width=70)
+dlm_entry.pack()
+tk.Button(root, text="Browse", command=browse_dlm).pack()
+tk.Label(root, textvariable=file_type).pack()
+
+# Output Folder and File Name
+tk.Label(root, text="Output Folder:").pack()
+output_entry = tk.Entry(root, width=70)
+output_entry.pack()
+tk.Button(root, text="Choose Folder", command=choose_output_folder).pack()
+
+tk.Label(root, text="Batch File Name (e.g., push_jobs.bat):").pack()
+filename_entry = tk.Entry(root, width=50)
+filename_entry.pack()
+
+# Generate
+output_msg = tk.StringVar()
+tk.Button(root, text="Generate Batch File", command=build_script, bg="lightblue").pack(pady=10)
+tk.Label(root, textvariable=output_msg, wraplength=550, justify="left", fg="blue").pack(pady=5)
+
+def copy_to_clipboard():
+    root.clipboard_clear()
+    root.clipboard_append(output_msg.get())
+    root.update()
+
+
+
+tk.Button(root, text="Copy Output Message to Clipboard", command=copy_to_clipboard, bg="lightblue", fg="black").pack(pady=10)
+
+root.mainloop()
