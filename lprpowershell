@@ -1,0 +1,48 @@
+param (
+    [string]$CsvPath = "C:\path\to\ips.csv",
+    [string]$FirmwarePath = "C:\path\to\firmware.dlm",
+    [string]$OutputFolder = "C:\path\to\output",
+    [string]$BatchFileName = "push_firmware.bat"
+)
+
+# Ensure output paths
+if (-not (Test-Path $CsvPath)) { throw "CSV file not found: $CsvPath" }
+if (-not (Test-Path $FirmwarePath)) { throw "Firmware file not found: $FirmwarePath" }
+if (-not (Test-Path $OutputFolder)) { New-Item -Path $OutputFolder -ItemType Directory | Out-Null }
+
+# Ensure .bat extension
+if (-not $BatchFileName.ToLower().EndsWith(".bat")) {
+    $BatchFileName += ".bat"
+}
+
+$BatchFilePath = Join-Path $OutputFolder $BatchFileName
+$ErrorFilePath = [System.IO.Path]::ChangeExtension($BatchFilePath, $null) + "_Errors.txt"
+$ZipFilePath   = [System.IO.Path]::ChangeExtension($BatchFilePath, $null) + "_package.zip"
+
+try {
+    # Read IPs
+    $ips = Get-Content $CsvPath | ForEach-Object { $_.Split(',')[0].Trim() } | Where-Object { $_ -match '^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$' }
+
+    # Build LPR lines
+    $lines = $ips | ForEach-Object {
+        "LPR -S $_ -P lp `"$FirmwarePath`""
+    }
+
+    # Write batch file
+    Set-Content -Path $BatchFilePath -Value $lines -Encoding ASCII
+
+    # Create empty error log
+    New-Item -Path $ErrorFilePath -ItemType File -Force | Out-Null
+
+    # Create ZIP
+    Compress-Archive -Path $BatchFilePath, $ErrorFilePath -DestinationPath $ZipFilePath -Force
+
+    # Output instructions
+    Write-Host "`n✅ Batch file created at: $BatchFilePath"
+    Write-Host "📥 Run this to capture errors:" -ForegroundColor Cyan
+    Write-Host "`n$BatchFileName >> $([System.IO.Path]::GetFileNameWithoutExtension($BatchFileName))_Errors.txt 2>&1`n"
+    Write-Host "🗜️  ZIP package created at: $ZipFilePath"
+
+} catch {
+    Write-Error "❌ An error occurred: $_"
+}
