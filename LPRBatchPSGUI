@@ -1,0 +1,162 @@
+# PowerShell GUI for Firmware Batch Tool
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+function Generate-BatchFile {
+    $csv = $csvBox.Text
+    $firmware = $fwBox.Text
+    $output = $outBox.Text
+    $batName = $batchBox.Text
+
+    if (-not ($csv -and $firmware -and $output -and $batName)) {
+        $outputBox.Text = "Please fill in all fields."
+        return
+    }
+
+    if (-not $batName.ToLower().EndsWith(".bat")) {
+        $batName += ".bat"
+    }
+
+    $batPath = Join-Path $output $batName
+    $errPath = [System.IO.Path]::ChangeExtension($batPath, $null) + "_Errors.txt"
+
+    try {
+        $lines = Get-Content $csv | ForEach-Object {
+            $ip = $_.Split(',')[0].Trim()
+            if ($ip -match '^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$') {
+                "LPR -S $ip -P lp `"$firmware`""
+            }
+        }
+
+        if ($lines.Count -eq 0) {
+            $outputBox.Text = "No valid IPs found in CSV."
+            return
+        }
+
+        Set-Content -Path $batPath -Value $lines -Encoding ASCII
+        New-Item -Path $errPath -ItemType File -Force | Out-Null
+
+        $cmd = "$batName >> $([System.IO.Path]::GetFileNameWithoutExtension($batName))_Errors.txt 2>&1"
+
+        $outputBox.Text = "Batch file created: `n$batPath`n`nRun with error logging:`n$cmd`n`nError file initialized: $errPath"
+
+    } catch {
+        $outputBox.Text = "Error: $_"
+    }
+}
+
+# Initialize form
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Firmware Batch Tool"
+$form.Size = New-Object System.Drawing.Size(600, 600)
+$form.StartPosition = "CenterScreen"
+
+# CSV IPs
+$csvLabel = New-Object System.Windows.Forms.Label
+$csvLabel.Text = "CSV File of IPs (1st column only):"
+$csvLabel.Location = '10,20'
+$csvLabel.Size = '300,20'
+$form.Controls.Add($csvLabel)
+
+$csvBox = New-Object System.Windows.Forms.TextBox
+$csvBox.Size = '450,20'
+$csvBox.Location = '10,40'
+$form.Controls.Add($csvBox)
+
+$csvBtn = New-Object System.Windows.Forms.Button
+$csvBtn.Text = "Browse"
+$csvBtn.Location = '470,40'
+$csvBtn.Add_Click({
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Filter = "CSV files (*.csv)|*.csv"
+    if ($dlg.ShowDialog() -eq "OK") { $csvBox.Text = $dlg.FileName }
+})
+$form.Controls.Add($csvBtn)
+
+# Firmware File
+$fwLabel = New-Object System.Windows.Forms.Label
+$fwLabel.Text = "Firmware File (.dlm, .weblet, etc):"
+$fwLabel.Location = '10,70'
+$fwLabel.Size = '300,20'
+$form.Controls.Add($fwLabel)
+
+$fwBox = New-Object System.Windows.Forms.TextBox
+$fwBox.Size = '450,20'
+$fwBox.Location = '10,90'
+$form.Controls.Add($fwBox)
+
+$fwBtn = New-Object System.Windows.Forms.Button
+$fwBtn.Text = "Browse"
+$fwBtn.Location = '470,90'
+$fwBtn.Add_Click({
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Filter = "Firmware Files (*.dlm;*.weblet;*.pkg;*.hex;*.vme)|*.dlm;*.weblet;*.pkg;*.hex;*.vme"
+    if ($dlg.ShowDialog() -eq "OK") { $fwBox.Text = $dlg.FileName }
+})
+$form.Controls.Add($fwBtn)
+
+# Output Folder
+$outLabel = New-Object System.Windows.Forms.Label
+$outLabel.Text = "Output Folder:"
+$outLabel.Location = '10,120'
+$outLabel.Size = '300,20'
+$form.Controls.Add($outLabel)
+
+$outBox = New-Object System.Windows.Forms.TextBox
+$outBox.Size = '450,20'
+$outBox.Location = '10,140'
+$form.Controls.Add($outBox)
+
+$outBtn = New-Object System.Windows.Forms.Button
+$outBtn.Text = "Browse"
+$outBtn.Location = '470,140'
+$outBtn.Add_Click({
+    $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+    if ($dlg.ShowDialog() -eq "OK") { $outBox.Text = $dlg.SelectedPath }
+})
+$form.Controls.Add($outBtn)
+
+# Batch File Name
+$batchLabel = New-Object System.Windows.Forms.Label
+$batchLabel.Text = "Batch File Name (e.g., push_jobs.bat):"
+$batchLabel.Location = '10,170'
+$batchLabel.Size = '300,20'
+$form.Controls.Add($batchLabel)
+
+$batchBox = New-Object System.Windows.Forms.TextBox
+$batchBox.Size = '300,20'
+$batchBox.Location = '10,190'
+$form.Controls.Add($batchBox)
+
+# Output Box
+$outputBox = New-Object System.Windows.Forms.TextBox
+$outputBox.Multiline = $true
+$outputBox.ScrollBars = "Vertical"
+$outputBox.Location = '10,230'
+$outputBox.Size = '560,250'
+$form.Controls.Add($outputBox)
+
+# Copy to Clipboard Button
+$copyBtn = New-Object System.Windows.Forms.Button
+$copyBtn.Text = "Copy Output"
+$copyBtn.BackColor = 'DarkGray'
+$copyBtn.ForeColor = 'White'
+$copyBtn.Location = '10,500'
+$copyBtn.Add_Click({
+    $outputBox.SelectAll()
+    $outputBox.Copy()
+})
+$form.Controls.Add($copyBtn)
+
+# Generate Button
+$genBtn = New-Object System.Windows.Forms.Button
+$genBtn.Text = "Generate Batch File"
+$genBtn.BackColor = 'LightBlue'
+$genBtn.Location = '400,500'
+$genBtn.Add_Click({ Generate-BatchFile })
+$form.Controls.Add($genBtn)
+
+# Show Form
+$form.Topmost = $true
+$form.Add_Shown({ $form.Activate() })
+[void]$form.ShowDialog()
