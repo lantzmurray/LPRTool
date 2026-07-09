@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+dist/
+build/
+*.spec
+*.exe
+*_Errors.txt
+*_package.zip
+*.bat
+
+# Generated manifest is per-run output; the sample CSV under samples/ IS tracked.
+*_manifest.csv
+# Local-only real IP lists / firmware (never commit private operational data)
+ips.csv
+/out/
+
+# Local work-in-progress.
+wip/
+
+# Defensive: never accidentally commit private scratch notes or real run data.
+notes/
+private/
+scratch/
+real-data/
